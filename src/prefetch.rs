@@ -41,12 +41,12 @@ pub unsafe extern "C" fn prefetch(
     let res = match task_result {
         Some(Ok(task)) => DownloadTask::new(task, rx, cancel_token),
         Some(Err(e)) => DownloadTask::new_failed(
-            CString::new(format!("prefetch error: {e}"))
-                .unwrap_or_else(|_| CString::new("prefetch error").unwrap()),
+            CString::new(format!("{e}"))
+                .unwrap_or_else(|_| CString::new("Prefetch error").unwrap()),
             rx,
             cancel_token,
         ),
-        None => DownloadTask::new_failed(CString::new("prefetch error").unwrap(), rx, cancel_token),
+        None => DownloadTask::new_failed(CString::new("Prefetch error").unwrap(), rx, cancel_token),
     };
     Box::into_raw(Box::new(res))
 }
