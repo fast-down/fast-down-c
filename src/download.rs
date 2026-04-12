@@ -215,8 +215,9 @@ pub unsafe extern "C" fn free_downloaded_data(ptr: *mut *mut u8, len: usize) {
         return;
     }
     unsafe {
-        #[allow(clippy::same_length_and_capacity)]
-        drop(Vec::from_raw_parts(inner, len, len));
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+            inner, len,
+        )));
         *ptr = std::ptr::null_mut();
     }
 }
