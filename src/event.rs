@@ -40,45 +40,53 @@ pub type EventCallback = extern "C" fn(
 
 #[derive(Debug)]
 pub struct CallbackContext {
-    callback: EventCallback,
-    context: *mut c_void,
+    pub callback: EventCallback,
+    pub context: *mut c_void,
 }
 
-pub fn emit_c_event(ctx: &CallbackContext, event: fast_down_ffi::Event) {
-    let (event_type, id, message, range_start, range_end) = match event {
-        fast_down_ffi::Event::PrefetchError(e) => {
-            let msg = CString::new(e).unwrap_or_default();
-            (EventType::PrefetchError, 0, Some(msg), 0, 0)
-        }
-        fast_down_ffi::Event::Pulling(id) => (EventType::Pulling, id, None, 0, 0),
-        fast_down_ffi::Event::PullError(id, e) => {
-            let msg = CString::new(e).unwrap_or_default();
-            (EventType::PullError, id, Some(msg), 0, 0)
-        }
-        fast_down_ffi::Event::PullTimeout(id) => (EventType::PullTimeout, id, None, 0, 0),
-        fast_down_ffi::Event::PullProgress(id, range) => {
-            (EventType::PullProgress, id, None, range.start, range.end)
-        }
-        fast_down_ffi::Event::Pushing(id, range) => {
-            (EventType::Pushing, id, None, range.start, range.end)
-        }
-        fast_down_ffi::Event::PushError(id, range, e) => {
-            let msg = CString::new(e).unwrap_or_default();
-            (EventType::PushError, id, Some(msg), range.start, range.end)
-        }
-        fast_down_ffi::Event::PushProgress(id, range) => {
-            (EventType::PushProgress, id, None, range.start, range.end)
-        }
-        fast_down_ffi::Event::Flushing => (EventType::Flushing, 0, None, 0, 0),
-        fast_down_ffi::Event::FlushError(e) => {
-            let msg = CString::new(e).unwrap_or_default();
-            (EventType::FlushError, 0, Some(msg), 0, 0)
-        }
-        fast_down_ffi::Event::Finished(id) => (EventType::Finished, id, None, 0, 0),
-    };
-    let msg_ptr = message
-        .as_ref()
-        .map(|m| m.as_ptr())
-        .unwrap_or(std::ptr::null());
-    (ctx.callback)(ctx.context, event_type, id, msg_ptr, range_start, range_end);
+impl CallbackContext {
+    pub fn emit_c_event(&self, event: fast_down_ffi::Event) {
+        let (event_type, id, message, range_start, range_end) = match event {
+            fast_down_ffi::Event::PrefetchError(e) => {
+                let msg = CString::new(e).unwrap_or_default();
+                (EventType::PrefetchError, 0, Some(msg), 0, 0)
+            }
+            fast_down_ffi::Event::Pulling(id) => (EventType::Pulling, id, None, 0, 0),
+            fast_down_ffi::Event::PullError(id, e) => {
+                let msg = CString::new(e).unwrap_or_default();
+                (EventType::PullError, id, Some(msg), 0, 0)
+            }
+            fast_down_ffi::Event::PullTimeout(id) => (EventType::PullTimeout, id, None, 0, 0),
+            fast_down_ffi::Event::PullProgress(id, range) => {
+                (EventType::PullProgress, id, None, range.start, range.end)
+            }
+            fast_down_ffi::Event::Pushing(id, range) => {
+                (EventType::Pushing, id, None, range.start, range.end)
+            }
+            fast_down_ffi::Event::PushError(id, range, e) => {
+                let msg = CString::new(e).unwrap_or_default();
+                (EventType::PushError, id, Some(msg), range.start, range.end)
+            }
+            fast_down_ffi::Event::PushProgress(id, range) => {
+                (EventType::PushProgress, id, None, range.start, range.end)
+            }
+            fast_down_ffi::Event::Flushing => (EventType::Flushing, 0, None, 0, 0),
+            fast_down_ffi::Event::FlushError(e) => {
+                let msg = CString::new(e).unwrap_or_default();
+                (EventType::FlushError, 0, Some(msg), 0, 0)
+            }
+            fast_down_ffi::Event::Finished(id) => (EventType::Finished, id, None, 0, 0),
+        };
+        let msg_ptr = message
+            .as_ref()
+            .map_or(std::ptr::null(), |m| m.as_ptr());
+        (self.callback)(
+            self.context,
+            event_type,
+            id,
+            msg_ptr,
+            range_start,
+            range_end,
+        );
+    }
 }

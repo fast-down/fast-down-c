@@ -7,24 +7,42 @@ typedef struct CancellationToken CancellationToken;
 
 typedef struct Config Config;
 
+typedef struct DownloadTask DownloadTask;
+
+typedef struct Option_EventCallback Option_EventCallback;
+
+typedef struct Option_FlushCallback Option_FlushCallback;
+
 typedef struct UrlInfo UrlInfo;
+
+/**
+ * 推送数据回调
+ *
+ * - `context`: 用户自定义指针
+ * - `offset`: 数据在文件中的起始偏移量
+ * - `data`: 数据指针
+ * - `len`: 数据长度
+ *
+ * 返回值：0 成功，非 0 失败
+ */
+typedef int (*PushCallback)(void *context, uint64_t offset, const uint8_t *data, uintptr_t len);
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
 /**
- * 创建一个新的 CancellationToken
+ * 创建一个新的 `CancellationToken`
  */
 struct CancellationToken *cancellation_token_new(void);
 
 /**
- * 增加原 CancellationToken 的引用计数
+ * 增加原 `CancellationToken` 的引用计数
  */
 struct CancellationToken *cancellation_token_retain(const struct CancellationToken *ptr);
 
 /**
- * 减少原 CancellationToken 的引用计数，若计数归零则销毁内部数据
+ * 减少原 `CancellationToken` 的引用计数，若计数归零则销毁内部数据
  */
 void cancellation_token_release(struct CancellationToken **ptr);
 
@@ -39,7 +57,7 @@ struct CancellationToken *cancellation_token_child(const struct CancellationToke
 void cancellation_token_cancel(const struct CancellationToken *ptr);
 
 /**
- * 查询是否已取消
+ * 查询是否已取消，空指针永远返回 true
  */
 bool cancellation_token_is_cancelled(const struct CancellationToken *ptr);
 
@@ -96,7 +114,102 @@ void config_clear_downloaded_chunks(struct Config *handle);
 void config_set_chunk_window(struct Config *handle, uint64_t window);
 
 /**
- * 释放 UrlInfo 句柄
+ * 释放任务句柄
+ */
+void download_task_free(struct DownloadTask **ptr);
+
+/**
+ * 彻底取消下载任务（不可恢复）
+ */
+void download_task_cancel(const struct DownloadTask *handle);
+
+/**
+ * 检查是否已被彻底取消，空指针永远返回 true
+ */
+bool download_task_is_cancelled(const struct DownloadTask *handle);
+
+/**
+ * 暂停下载任务（可恢复）
+ */
+void download_task_pause(const struct DownloadTask *handle);
+
+/**
+ * 检查是否处于暂停状态，空指针永远返回 true
+ */
+bool download_task_is_paused(const struct DownloadTask *handle);
+
+/**
+ * 获取 `UrlInfo` 句柄（禁止用 `url_info_free` 释放，这只是一个可变借用）
+ */
+struct UrlInfo *download_task_get_info(struct DownloadTask *handle);
+
+/**
+ * 开始下载任务写入到指定路径
+ *
+ * # 返回值
+ * - `0` 成功
+ * - `-1` 参数错误 (传入了空指针)
+ * - `-2` 任务已经运行
+ * - `-3` 下载失败
+ */
+int32_t download_task_start_to_file(struct DownloadTask *handle,
+                                    const char *save_path,
+                                    struct Option_EventCallback callback,
+                                    void *context);
+
+/**
+ * 开始下载任务并返回内存中的数据，释放内存需用 `free_downloaded_data` 函数
+ *
+ * # 返回值
+ * - `0` 成功
+ * - `-1` 参数错误 (传入了空指针)
+ * - `-2` 任务已经运行
+ * - `-3` 下载失败
+ */
+int32_t download_task_start_to_memory(struct DownloadTask *handle,
+                                      uint8_t **out_data,
+                                      uintptr_t *out_len,
+                                      struct Option_EventCallback callback,
+                                      void *context);
+
+/**
+ * 释放由 `download_task_start_to_memory` 分配的内存
+ */
+void free_downloaded_data(uint8_t **ptr, uintptr_t len);
+
+/**
+ * 开始下载任务并使用自定义推送器
+ *
+ * # 返回值
+ * - `0` 成功
+ * - `-1` 参数错误 (传入了空指针)
+ * - `-2` 任务已经运行
+ * - `-3` 下载失败
+ */
+int32_t download_task_start_with_pusher(struct DownloadTask *handle,
+                                        PushCallback push_cb,
+                                        struct Option_FlushCallback flush_cb,
+                                        void *pusher_ctx,
+                                        struct Option_EventCallback event_cb,
+                                        void *event_ctx);
+
+/**
+ * 创建下载任务
+ *
+ * # 参数
+ * - `url`: 下载链接（UTF-8 字符串）
+ * - `config`: 配置句柄（可为 NULL，使用默认配置）
+ * - `token`: 取消令牌句柄（可为 NULL，内部自动创建）
+ *
+ * # 返回值
+ * 成功返回 `DownloadTask*`，失败返回 NULL。
+ */
+struct DownloadTask *prefetch(const char *url,
+                              struct Config *config,
+                              struct CancellationToken *token);
+
+/**
+ * 释放 `UrlInfo` 句柄
  */
 void url_info_free(struct UrlInfo **ptr);
 

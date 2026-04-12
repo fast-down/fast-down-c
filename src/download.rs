@@ -1,130 +1,263 @@
-use crate::{Event, FlushFn, ForceSendExt, JsPusher, PushFn, ToNapiError, UrlInfo};
-use fast_down_ffi::{BoxPusher, Error, Rx};
-use napi::{
-  bindgen_prelude::Uint8Array,
-  threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  Status,
+use crate::{
+    CPusher, CallbackContext, EventCallback, FlushCallback, PushCallback, RUNTIME, UrlInfo,
 };
-use napi_derive::napi;
+use arc_swap::ArcSwap;
+use fast_down_ffi::{BoxPusher, Error, Rx};
 use parking_lot::Mutex;
-use std::{future::Future, sync::Arc};
+use std::ffi::CStr;
+use std::os::raw::{c_char, c_void};
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-#[napi]
 pub struct DownloadTask {
-  info: UrlInfo,
-  inner: Mutex<Option<(fast_down_ffi::DownloadTask, Rx)>>,
-  token: CancellationToken,
+    info: UrlInfo,
+    task: fast_down_ffi::DownloadTask,
+    rx: Mutex<Option<Rx>>,
+    token: CancellationToken,
+    child_token: ArcSwap<CancellationToken>,
 }
 
-pub type DownloadCallback = ThreadsafeFunction<Event, (), Event, Status, false>;
-
-#[napi]
 impl DownloadTask {
-  pub fn new(task: fast_down_ffi::DownloadTask, rx: Rx, token: CancellationToken) -> Self {
-    let info = (&task.info).into();
-    let inner = Mutex::new(Some((task, rx)));
-    Self { info, inner, token }
-  }
+    pub fn new(task: fast_down_ffi::DownloadTask, rx: Rx, token: CancellationToken) -> Self {
+        let child_token = token.child_token();
+        child_token.cancel();
+        Self {
+            info: (&task.info).into(),
+            task,
+            rx: Mutex::new(Some(rx)),
+            child_token: ArcSwap::from_pointee(child_token),
+            token,
+        }
+    }
 
-  #[napi]
-  pub fn cancel(&self) {
-    self.token.cancel();
-  }
-
-  #[napi]
-  pub fn is_cancelled(&self) -> bool {
-    self.token.is_cancelled()
-  }
-
-  #[napi(getter)]
-  pub fn info(&self) -> UrlInfo {
-    self.info.clone()
-  }
-
-  fn inner(&self) -> napi::Result<(fast_down_ffi::DownloadTask, Rx)> {
-    self
-      .inner
-      .lock()
-      .take()
-      .convert_err("Download task has already been started or is invalid")
-  }
-
-  /// 开始下载任务写入到指定路径
-  /// @param `save_path` 存储路径
-  /// @param `callback` 进度与事件回调函数
-  #[napi]
-  pub async fn start(
-    &self,
-    save_path: String,
-    #[napi(ts_arg_type = "(event: Event) => void")] callback: Option<DownloadCallback>,
-  ) -> napi::Result<()> {
-    let (task, rx) = self.inner()?;
-    let download_fut = task.start(save_path.into(), self.token.clone());
-    download_inner(download_fut, rx, callback)
-      .force_send()
-      .await
-  }
-
-  /// 开始下载任务并返回内存中的数据
-  /// @param `callback` 进度与事件回调函数
-  #[napi]
-  pub async fn start_in_memory(
-    &self,
-    #[napi(ts_arg_type = "(event: Event) => void")] callback: Option<DownloadCallback>,
-  ) -> napi::Result<Uint8Array> {
-    let (task, rx) = self.inner()?;
-    let download_fut = task.start_in_memory(self.token.clone());
-    download_inner(download_fut, rx, callback)
-      .force_send()
-      .await
-      .map(Uint8Array::new)
-  }
-
-  /// 开始下载任务并使用自定义的 pusher
-  /// @param `push_fn` 数据推送回调函数
-  /// @param `flush_fn` 缓冲区刷新回调函数
-  /// @param `callback` 进度与事件回调函数
-  #[napi]
-  pub async fn start_with_pusher(
-    &self,
-    #[napi(ts_arg_type = "(data: [number, Uint8Array]) => Promise<void>")] push_fn: Arc<PushFn>,
-    #[napi(ts_arg_type = "() => Promise<void>")] flush_fn: Option<Arc<FlushFn>>,
-    #[napi(ts_arg_type = "(event: Event) => void")] callback: Option<DownloadCallback>,
-  ) -> napi::Result<()> {
-    let (task, rx) = self.inner()?;
-    let pusher = JsPusher::new(push_fn, flush_fn, task.config.write_buffer_size);
-    let download_fut = task.start_with_pusher(BoxPusher::new(pusher), self.token.clone());
-    download_inner(download_fut, rx, callback)
-      .force_send()
-      .await
-  }
+    fn refresh_child_token(&self) -> CancellationToken {
+        let child_token = self.token.child_token();
+        self.child_token.store(Arc::new(child_token.clone()));
+        child_token
+    }
 }
 
-async fn download_inner<R>(
-  download_fut: impl Future<Output = Result<R, Error>>,
-  rx: Rx,
-  callback: Option<DownloadCallback>,
-) -> napi::Result<R> {
-  let Some(callback) = callback else {
-    return download_fut.await.convert_err("Download Task Error");
-  };
-  tokio::pin!(download_fut);
-  loop {
-    tokio::select! {
-      res = &mut download_fut => return res.convert_err("Download Task Error"),
-      event = rx.recv() => {
-        match event {
-          Ok(e) => {
-            callback.call(
-              Event::from(e),
-              ThreadsafeFunctionCallMode::NonBlocking,
-            );
-          }
-          Err(_) => break,
-        }
-      }
+/// 释放任务句柄
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_free(ptr: *mut *mut DownloadTask) {
+    if ptr.is_null() {
+        return;
     }
-  }
-  download_fut.await.convert_err("Download Task Error")
+    unsafe {
+        let inner = *ptr;
+        if inner.is_null() {
+            return;
+        }
+        drop(Box::from_raw(inner));
+        *ptr = std::ptr::null_mut();
+    }
+}
+
+/// 彻底取消下载任务（不可恢复）
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_cancel(handle: *const DownloadTask) {
+    if let Some(h) = unsafe { handle.as_ref() } {
+        h.token.cancel();
+    }
+}
+
+/// 检查是否已被彻底取消，空指针永远返回 true
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_is_cancelled(handle: *const DownloadTask) -> bool {
+    unsafe { handle.as_ref().is_none_or(|h| h.token.is_cancelled()) }
+}
+
+/// 暂停下载任务（可恢复）
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_pause(handle: *const DownloadTask) {
+    if let Some(h) = unsafe { handle.as_ref() } {
+        h.child_token.load().cancel();
+    }
+}
+
+/// 检查是否处于暂停状态，空指针永远返回 true
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_is_paused(handle: *const DownloadTask) -> bool {
+    unsafe {
+        handle
+            .as_ref()
+            .is_none_or(|h| h.child_token.load().is_cancelled())
+    }
+}
+
+/// 获取 `UrlInfo` 句柄（禁止用 `url_info_free` 释放，这只是一个可变借用）
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_get_info(handle: *mut DownloadTask) -> *mut UrlInfo {
+    unsafe {
+        handle
+            .as_mut()
+            .map_or(std::ptr::null_mut(), |h| &raw mut h.info)
+    }
+}
+
+fn download_inner<R>(
+    download_fut: impl Future<Output = Result<R, Error>>,
+    rx: Rx,
+    ctx: Option<CallbackContext>,
+) -> (Result<R, String>, Rx) {
+    RUNTIME.block_on(async move {
+        tokio::pin!(download_fut);
+        let res = loop {
+            tokio::select! {
+              res = &mut download_fut => break res,
+              event = rx.recv() => {
+                match event {
+                  Ok(e) => {
+                    if let Some(ref ctx) = ctx {
+                        ctx.emit_c_event(e);
+                    }
+                  }
+                  Err(_) => break download_fut.await,
+                }
+              }
+            }
+        };
+        while let Ok(e) = rx.try_recv() {
+            if let Some(ref ctx) = ctx {
+                ctx.emit_c_event(e);
+            }
+        }
+        let res = res.map_err(|e| format!("Download task failed: {e:?}"));
+        (res, rx)
+    })
+}
+
+/// 开始下载任务写入到指定路径
+///
+/// # 返回值
+/// - `0` 成功
+/// - `-1` 参数错误 (传入了空指针)
+/// - `-2` 任务已经运行
+/// - `-3` 下载失败
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_start_to_file(
+    handle: *mut DownloadTask,
+    save_path: *const c_char,
+    callback: Option<EventCallback>,
+    context: *mut c_void,
+) -> i32 {
+    if handle.is_null() || save_path.is_null() {
+        return -1;
+    }
+    let h = unsafe { &*handle };
+    let Some(rx) = h.rx.lock().take() else {
+        return -2;
+    };
+    let path: PathBuf = unsafe { CStr::from_ptr(save_path) }
+        .to_string_lossy()
+        .as_ref()
+        .into();
+    let child_token = h.refresh_child_token();
+    let fut = h.task.start(path, child_token.clone());
+    let ctx = callback.map(|callback| CallbackContext { callback, context });
+    let (res, rx) = download_inner(fut, rx, ctx);
+    h.rx.lock().replace(rx);
+    child_token.cancel();
+    match res {
+        Ok(()) => 0,
+        Err(_) => -3,
+    }
+}
+
+/// 开始下载任务并返回内存中的数据，释放内存需用 `free_downloaded_data` 函数
+///
+/// # 返回值
+/// - `0` 成功
+/// - `-1` 参数错误 (传入了空指针)
+/// - `-2` 任务已经运行
+/// - `-3` 下载失败
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_start_to_memory(
+    handle: *mut DownloadTask,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+    callback: Option<EventCallback>,
+    context: *mut c_void,
+) -> i32 {
+    if handle.is_null() || out_data.is_null() || out_len.is_null() {
+        return -1;
+    }
+    let h = unsafe { &*handle };
+    let Some(rx) = h.rx.lock().take() else {
+        return -2;
+    };
+    let child_token = h.refresh_child_token();
+    let fut = h.task.start_in_memory(child_token.clone());
+    let ctx = callback.map(|callback| CallbackContext { callback, context });
+    let (res, rx) = download_inner(fut, rx, ctx);
+    h.rx.lock().replace(rx);
+    child_token.cancel();
+    res.map_or(-3, |bytes| {
+        let mut boxed = bytes.into_boxed_slice();
+        unsafe {
+            *out_data = boxed.as_mut_ptr();
+            *out_len = boxed.len();
+        }
+        std::mem::forget(boxed);
+        0
+    })
+}
+
+/// 释放由 `download_task_start_to_memory` 分配的内存
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_downloaded_data(ptr: *mut *mut u8, len: usize) {
+    if ptr.is_null() {
+        return;
+    }
+    let inner = unsafe { *ptr };
+    if inner.is_null() {
+        return;
+    }
+    unsafe {
+        drop(Vec::from_raw_parts(inner, len, len));
+        *ptr = std::ptr::null_mut();
+    }
+}
+
+/// 开始下载任务并使用自定义推送器
+///
+/// # 返回值
+/// - `0` 成功
+/// - `-1` 参数错误 (传入了空指针)
+/// - `-2` 任务已经运行
+/// - `-3` 下载失败
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_start_with_pusher(
+    handle: *mut DownloadTask,
+    push_cb: PushCallback,
+    flush_cb: Option<FlushCallback>,
+    pusher_ctx: *mut c_void,
+    event_cb: Option<EventCallback>,
+    event_ctx: *mut c_void,
+) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+    let h = unsafe { &*handle };
+    let Some(rx) = h.rx.lock().take() else {
+        return -2;
+    };
+    let buffer_size = h.task.config.write_buffer_size;
+    let pusher = CPusher::new(push_cb, flush_cb, buffer_size, pusher_ctx);
+    let child_token = h.refresh_child_token();
+    let fut = h
+        .task
+        .start_with_pusher(BoxPusher::new(pusher), child_token.clone());
+    let event_ctx = event_cb.map(|callback| CallbackContext {
+        callback,
+        context: event_ctx,
+    });
+    let (res, rx) = download_inner(fut, rx, event_ctx);
+    h.rx.lock().replace(rx);
+    child_token.cancel();
+    match res {
+        Ok(()) => 0,
+        Err(_) => -3,
+    }
 }

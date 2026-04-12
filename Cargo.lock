@@ -461,6 +461,7 @@ dependencies = [
  "path_helper",
  "tokio",
  "tokio-util",
+ "url",
 ]
 
 [[package]]
