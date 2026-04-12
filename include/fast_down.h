@@ -3,17 +3,48 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+typedef enum EventType {
+  PrefetchError = 0,
+  Pulling,
+  PullError,
+  PullTimeout,
+  PullProgress,
+  Pushing,
+  PushError,
+  PushProgress,
+  Flushing,
+  FlushError,
+  Finished,
+} EventType;
+
 typedef struct CancellationToken CancellationToken;
 
 typedef struct Config Config;
 
 typedef struct DownloadTask DownloadTask;
 
-typedef struct Option_EventCallback Option_EventCallback;
-
-typedef struct Option_FlushCallback Option_FlushCallback;
-
 typedef struct UrlInfo UrlInfo;
+
+/**
+ * 当下载过程中发生事件时，此回调会被调用。
+ *
+ * # 参数
+ * - `context`: 用户注册回调时提供的自定义指针，原样传回。
+ * - `event_type`: 事件类型，见 `EventType` 枚举。
+ * - `id`: 关联的线程 ID（仅部分事件有效，否则为 0）。
+ * - `message`: 错误消息或描述（仅部分事件有效，否则为 NULL）。
+ * - `range_start`: 进度范围的起始字节（仅部分事件有效有效）。
+ * - `range_end`: 进度范围的结束字节（仅部分事件有效有效）。
+ *
+ * # 安全性
+ * - `message` 指向的字符串仅在回调函数内有效，回调返回后可能被释放，调用者不应保存该指针或在其外部使用。
+ */
+typedef void (*EventCallback)(void *context,
+                              enum EventType event_type,
+                              uintptr_t id,
+                              const char *message,
+                              uint64_t range_start,
+                              uint64_t range_end);
 
 /**
  * 推送数据回调
@@ -26,6 +57,15 @@ typedef struct UrlInfo UrlInfo;
  * 返回值：0 成功，非 0 失败
  */
 typedef int (*PushCallback)(void *context, uint64_t offset, const uint8_t *data, uintptr_t len);
+
+/**
+ * 刷新回调
+ *
+ * - `context`: 用户自定义指针
+ *
+ * 返回值：0 成功，非 0 失败
+ */
+typedef int (*FlushCallback)(void *context);
 
 #ifdef __cplusplus
 extern "C" {
@@ -154,7 +194,7 @@ struct UrlInfo *download_task_get_info(struct DownloadTask *handle);
  */
 int32_t download_task_start_to_file(struct DownloadTask *handle,
                                     const char *save_path,
-                                    struct Option_EventCallback callback,
+                                    EventCallback callback,
                                     void *context);
 
 /**
@@ -169,7 +209,7 @@ int32_t download_task_start_to_file(struct DownloadTask *handle,
 int32_t download_task_start_to_memory(struct DownloadTask *handle,
                                       uint8_t **out_data,
                                       uintptr_t *out_len,
-                                      struct Option_EventCallback callback,
+                                      EventCallback callback,
                                       void *context);
 
 /**
@@ -188,9 +228,9 @@ void free_downloaded_data(uint8_t **ptr, uintptr_t len);
  */
 int32_t download_task_start_with_pusher(struct DownloadTask *handle,
                                         PushCallback push_cb,
-                                        struct Option_FlushCallback flush_cb,
+                                        FlushCallback flush_cb,
                                         void *pusher_ctx,
-                                        struct Option_EventCallback event_cb,
+                                        EventCallback event_cb,
                                         void *event_ctx);
 
 /**

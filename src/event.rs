@@ -29,14 +29,16 @@ pub enum EventType {
 ///
 /// # 安全性
 /// - `message` 指向的字符串仅在回调函数内有效，回调返回后可能被释放，调用者不应保存该指针或在其外部使用。
-pub type EventCallback = extern "C" fn(
-    context: *mut c_void,
-    event_type: EventType,
-    id: usize,
-    message: *const c_char,
-    range_start: u64,
-    range_end: u64,
-);
+pub type EventCallback = Option<
+    extern "C" fn(
+        context: *mut c_void,
+        event_type: EventType,
+        id: usize,
+        message: *const c_char,
+        range_start: u64,
+        range_end: u64,
+    ),
+>;
 
 #[derive(Debug)]
 pub struct CallbackContext {
@@ -77,16 +79,16 @@ impl CallbackContext {
             }
             fast_down_ffi::Event::Finished(id) => (EventType::Finished, id, None, 0, 0),
         };
-        let msg_ptr = message
-            .as_ref()
-            .map_or(std::ptr::null(), |m| m.as_ptr());
-        (self.callback)(
-            self.context,
-            event_type,
-            id,
-            msg_ptr,
-            range_start,
-            range_end,
-        );
+        let msg_ptr = message.as_ref().map_or(std::ptr::null(), |m| m.as_ptr());
+        if let Some(cb) = self.callback {
+            (cb)(
+                self.context,
+                event_type,
+                id,
+                msg_ptr,
+                range_start,
+                range_end,
+            );
+        }
     }
 }

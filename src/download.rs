@@ -139,7 +139,7 @@ fn download_inner<R>(
 pub unsafe extern "C" fn download_task_start_to_file(
     handle: *mut DownloadTask,
     save_path: *const c_char,
-    callback: Option<EventCallback>,
+    callback: EventCallback,
     context: *mut c_void,
 ) -> i32 {
     if handle.is_null() || save_path.is_null() {
@@ -155,7 +155,7 @@ pub unsafe extern "C" fn download_task_start_to_file(
         .into();
     let child_token = h.refresh_child_token();
     let fut = h.task.start(path, child_token.clone());
-    let ctx = callback.map(|callback| CallbackContext { callback, context });
+    let ctx = callback.map(|_| CallbackContext { callback, context });
     let (res, rx) = download_inner(fut, rx, ctx);
     h.rx.lock().replace(rx);
     child_token.cancel();
@@ -177,7 +177,7 @@ pub unsafe extern "C" fn download_task_start_to_memory(
     handle: *mut DownloadTask,
     out_data: *mut *mut u8,
     out_len: *mut usize,
-    callback: Option<EventCallback>,
+    callback: EventCallback,
     context: *mut c_void,
 ) -> i32 {
     if handle.is_null() || out_data.is_null() || out_len.is_null() {
@@ -189,7 +189,7 @@ pub unsafe extern "C" fn download_task_start_to_memory(
     };
     let child_token = h.refresh_child_token();
     let fut = h.task.start_in_memory(child_token.clone());
-    let ctx = callback.map(|callback| CallbackContext { callback, context });
+    let ctx = callback.map(|_| CallbackContext { callback, context });
     let (res, rx) = download_inner(fut, rx, ctx);
     h.rx.lock().replace(rx);
     child_token.cancel();
@@ -215,6 +215,7 @@ pub unsafe extern "C" fn free_downloaded_data(ptr: *mut *mut u8, len: usize) {
         return;
     }
     unsafe {
+        #[allow(clippy::same_length_and_capacity)]
         drop(Vec::from_raw_parts(inner, len, len));
         *ptr = std::ptr::null_mut();
     }
@@ -231,9 +232,9 @@ pub unsafe extern "C" fn free_downloaded_data(ptr: *mut *mut u8, len: usize) {
 pub unsafe extern "C" fn download_task_start_with_pusher(
     handle: *mut DownloadTask,
     push_cb: PushCallback,
-    flush_cb: Option<FlushCallback>,
+    flush_cb: FlushCallback,
     pusher_ctx: *mut c_void,
-    event_cb: Option<EventCallback>,
+    event_cb: EventCallback,
     event_ctx: *mut c_void,
 ) -> i32 {
     if handle.is_null() {
@@ -249,8 +250,8 @@ pub unsafe extern "C" fn download_task_start_with_pusher(
     let fut = h
         .task
         .start_with_pusher(BoxPusher::new(pusher), child_token.clone());
-    let event_ctx = event_cb.map(|callback| CallbackContext {
-        callback,
+    let event_ctx = event_cb.map(|_| CallbackContext {
+        callback: event_cb,
         context: event_ctx,
     });
     let (res, rx) = download_inner(fut, rx, event_ctx);

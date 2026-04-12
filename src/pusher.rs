@@ -13,18 +13,18 @@ use std::os::raw::c_int;
 ///
 /// 返回值：0 成功，非 0 失败
 pub type PushCallback =
-    extern "C" fn(context: *mut c_void, offset: u64, data: *const u8, len: usize) -> c_int;
+    Option<extern "C" fn(context: *mut c_void, offset: u64, data: *const u8, len: usize) -> c_int>;
 
 /// 刷新回调
 ///
 /// - `context`: 用户自定义指针
 ///
 /// 返回值：0 成功，非 0 失败
-pub type FlushCallback = extern "C" fn(context: *mut c_void) -> c_int;
+pub type FlushCallback = Option<extern "C" fn(context: *mut c_void) -> c_int>;
 
 pub struct CPusher {
     push_cb: PushCallback,
-    flush_cb: Option<FlushCallback>,
+    flush_cb: FlushCallback,
     cache: BTreeMap<u64, Bytes>,
     buffer_size: usize,
     cache_size: usize,
@@ -37,7 +37,7 @@ unsafe impl Send for CPusher {}
 impl CPusher {
     pub fn new(
         push_cb: PushCallback,
-        flush_cb: Option<FlushCallback>,
+        flush_cb: FlushCallback,
         buffer_size: usize,
         context: *mut c_void,
     ) -> Self {
@@ -53,7 +53,10 @@ impl CPusher {
 
     /// 发送数据到 C 回调
     fn send_to_c(&self, offset: u64, data: &[u8]) -> Result<(), String> {
-        let ret = (self.push_cb)(self.context, offset, data.as_ptr(), data.len());
+        let Some(push_cb) = self.push_cb else {
+            return Err("Push callback is none".to_string());
+        };
+        let ret = push_cb(self.context, offset, data.as_ptr(), data.len());
         if ret == 0 {
             Ok(())
         } else {
