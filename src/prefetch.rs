@@ -1,6 +1,6 @@
 use crate::{CancellationToken, Config, DownloadTask, RUNTIME};
 use fast_down_ffi::create_channel;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use url::Url;
 
@@ -38,8 +38,15 @@ pub unsafe extern "C" fn prefetch(
             .run_until_cancelled(fast_down_ffi::prefetch(url, config, tx))
             .await
     });
-    match task_result {
-        Some(Ok(task)) => Box::into_raw(Box::new(DownloadTask::new(task, rx, cancel_token))),
-        _ => std::ptr::null_mut(),
-    }
+    let res = match task_result {
+        Some(Ok(task)) => DownloadTask::new(task, rx, cancel_token),
+        Some(Err(e)) => DownloadTask::new_failed(
+            CString::new(format!("prefetch error: {e}"))
+                .unwrap_or_else(|_| CString::new("prefetch error").unwrap()),
+            rx,
+            cancel_token,
+        ),
+        None => DownloadTask::new_failed(CString::new("prefetch error").unwrap(), rx, cancel_token),
+    };
+    Box::into_raw(Box::new(res))
 }

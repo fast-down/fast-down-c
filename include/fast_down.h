@@ -184,13 +184,23 @@ bool download_task_is_paused(const struct DownloadTask *handle);
 struct UrlInfo *download_task_get_info(struct DownloadTask *handle);
 
 /**
+ * 获取 prefetch 阶段的错误信息（如果有的话）
+ *
+ * # 返回值
+ * - 非 NULL：返回错误信息字符串
+ * - NULL：无错误
+ */
+const char *download_task_get_error(const struct DownloadTask *handle);
+
+/**
  * 开始下载任务写入到指定路径
  *
  * # 返回值
  * - `0` 成功
  * - `-1` 参数错误 (传入了空指针)
- * - `-2` 任务已经运行
- * - `-3` 下载失败
+ * - `-2` 任务不存在 (可能是因为 prefetch 失败了)
+ * - `-3` 任务已经运行
+ * - `-4` 下载失败
  */
 int32_t download_task_start_to_file(struct DownloadTask *handle,
                                     const char *save_path,
@@ -203,8 +213,9 @@ int32_t download_task_start_to_file(struct DownloadTask *handle,
  * # 返回值
  * - `0` 成功
  * - `-1` 参数错误 (传入了空指针)
- * - `-2` 任务已经运行
- * - `-3` 下载失败
+ * - `-2` 任务不存在 (可能是因为 prefetch 失败了)
+ * - `-3` 任务已经运行
+ * - `-4` 下载失败
  */
 int32_t download_task_start_to_memory(struct DownloadTask *handle,
                                       uint8_t **out_data,
@@ -223,8 +234,9 @@ void free_downloaded_data(uint8_t **ptr, uintptr_t len);
  * # 返回值
  * - `0` 成功
  * - `-1` 参数错误 (传入了空指针)
- * - `-2` 任务已经运行
- * - `-3` 下载失败
+ * - `-2` 任务不存在 (可能是因为 prefetch 失败了)
+ * - `-3` 任务已经运行
+ * - `-4` 下载失败
  */
 int32_t download_task_start_with_pusher(struct DownloadTask *handle,
                                         PushCallback push_cb,

@@ -4,7 +4,7 @@ use crate::{
 use arc_swap::ArcSwap;
 use fast_down_ffi::{BoxPusher, Error, Rx};
 use parking_lot::Mutex;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,10 +12,11 @@ use tokio_util::sync::CancellationToken;
 
 pub struct DownloadTask {
     info: UrlInfo,
-    task: fast_down_ffi::DownloadTask,
+    task: Option<fast_down_ffi::DownloadTask>,
     rx: Mutex<Option<Rx>>,
     token: CancellationToken,
     child_token: ArcSwap<CancellationToken>,
+    error: Option<CString>,
 }
 
 impl DownloadTask {
@@ -24,10 +25,26 @@ impl DownloadTask {
         child_token.cancel();
         Self {
             info: (&task.info).into(),
-            task,
+            task: Some(task),
             rx: Mutex::new(Some(rx)),
             child_token: ArcSwap::from_pointee(child_token),
             token,
+            error: None,
+        }
+    }
+
+    /// 用于 prefetch 失败时创建一个带错误信息的空任务
+    #[must_use]
+    pub fn new_failed(error: CString, rx: Rx, token: CancellationToken) -> Self {
+        let child_token = token.child_token();
+        child_token.cancel();
+        Self {
+            info: UrlInfo::default(),
+            task: None,
+            rx: Mutex::new(Some(rx)),
+            child_token: ArcSwap::from_pointee(child_token),
+            token,
+            error: Some(error),
         }
     }
 
@@ -96,6 +113,21 @@ pub unsafe extern "C" fn download_task_get_info(handle: *mut DownloadTask) -> *m
     }
 }
 
+/// 获取 prefetch 阶段的错误信息（如果有的话）
+///
+/// # 返回值
+/// - 非 NULL：返回错误信息字符串
+/// - NULL：无错误
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_get_error(handle: *const DownloadTask) -> *const c_char {
+    unsafe {
+        handle
+            .as_ref()
+            .and_then(|h| h.error.as_ref().map(|s| s.as_ptr()))
+            .unwrap_or(std::ptr::null())
+    }
+}
+
 fn download_inner<R>(
     download_fut: impl Future<Output = Result<R, Error>>,
     rx: Rx,
@@ -133,8 +165,9 @@ fn download_inner<R>(
 /// # 返回值
 /// - `0` 成功
 /// - `-1` 参数错误 (传入了空指针)
-/// - `-2` 任务已经运行
-/// - `-3` 下载失败
+/// - `-2` 任务不存在 (可能是因为 prefetch 失败了)
+/// - `-3` 任务已经运行
+/// - `-4` 下载失败
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn download_task_start_to_file(
     handle: *mut DownloadTask,
@@ -146,22 +179,25 @@ pub unsafe extern "C" fn download_task_start_to_file(
         return -1;
     }
     let h = unsafe { &*handle };
-    let Some(rx) = h.rx.lock().take() else {
+    let Some(task) = h.task.as_ref() else {
         return -2;
+    };
+    let Some(rx) = h.rx.lock().take() else {
+        return -3;
     };
     let path: PathBuf = unsafe { CStr::from_ptr(save_path) }
         .to_string_lossy()
         .as_ref()
         .into();
     let child_token = h.refresh_child_token();
-    let fut = h.task.start(path, child_token.clone());
+    let fut = task.start(path, child_token.clone());
     let ctx = callback.map(|_| CallbackContext { callback, context });
     let (res, rx) = download_inner(fut, rx, ctx);
     h.rx.lock().replace(rx);
     child_token.cancel();
     match res {
         Ok(()) => 0,
-        Err(_) => -3,
+        Err(_) => -4,
     }
 }
 
@@ -170,8 +206,9 @@ pub unsafe extern "C" fn download_task_start_to_file(
 /// # 返回值
 /// - `0` 成功
 /// - `-1` 参数错误 (传入了空指针)
-/// - `-2` 任务已经运行
-/// - `-3` 下载失败
+/// - `-2` 任务不存在 (可能是因为 prefetch 失败了)
+/// - `-3` 任务已经运行
+/// - `-4` 下载失败
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn download_task_start_to_memory(
     handle: *mut DownloadTask,
@@ -184,16 +221,19 @@ pub unsafe extern "C" fn download_task_start_to_memory(
         return -1;
     }
     let h = unsafe { &*handle };
-    let Some(rx) = h.rx.lock().take() else {
+    let Some(task) = h.task.as_ref() else {
         return -2;
     };
+    let Some(rx) = h.rx.lock().take() else {
+        return -3;
+    };
     let child_token = h.refresh_child_token();
-    let fut = h.task.start_in_memory(child_token.clone());
+    let fut = task.start_in_memory(child_token.clone());
     let ctx = callback.map(|_| CallbackContext { callback, context });
     let (res, rx) = download_inner(fut, rx, ctx);
     h.rx.lock().replace(rx);
     child_token.cancel();
-    res.map_or(-3, |bytes| {
+    res.map_or(-4, |bytes| {
         let mut boxed = bytes.into_boxed_slice();
         unsafe {
             *out_data = boxed.as_mut_ptr();
@@ -227,8 +267,9 @@ pub unsafe extern "C" fn free_downloaded_data(ptr: *mut *mut u8, len: usize) {
 /// # 返回值
 /// - `0` 成功
 /// - `-1` 参数错误 (传入了空指针)
-/// - `-2` 任务已经运行
-/// - `-3` 下载失败
+/// - `-2` 任务不存在 (可能是因为 prefetch 失败了)
+/// - `-3` 任务已经运行
+/// - `-4` 下载失败
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn download_task_start_with_pusher(
     handle: *mut DownloadTask,
@@ -242,15 +283,16 @@ pub unsafe extern "C" fn download_task_start_with_pusher(
         return -1;
     }
     let h = unsafe { &*handle };
-    let Some(rx) = h.rx.lock().take() else {
+    let Some(task) = h.task.as_ref() else {
         return -2;
     };
-    let buffer_size = h.task.config.write_buffer_size;
+    let Some(rx) = h.rx.lock().take() else {
+        return -3;
+    };
+    let buffer_size = task.config.write_buffer_size;
     let pusher = CPusher::new(push_cb, flush_cb, buffer_size, pusher_ctx);
     let child_token = h.refresh_child_token();
-    let fut = h
-        .task
-        .start_with_pusher(BoxPusher::new(pusher), child_token.clone());
+    let fut = task.start_with_pusher(BoxPusher::new(pusher), child_token.clone());
     let event_ctx = event_cb.map(|_| CallbackContext {
         callback: event_cb,
         context: event_ctx,
@@ -260,6 +302,6 @@ pub unsafe extern "C" fn download_task_start_with_pusher(
     child_token.cancel();
     match res {
         Ok(()) => 0,
-        Err(_) => -3,
+        Err(_) => -4,
     }
 }

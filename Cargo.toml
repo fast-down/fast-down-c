@@ -26,4 +26,5 @@ nursery = { level = "deny", priority = -1 }
 # cargo = { level = "deny", priority = -1 }
 # restriction = { level = "deny", priority = -1 }
 missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 missing-safety-doc = "allow"

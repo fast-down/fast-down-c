@@ -4,7 +4,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::Arc;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct UrlInfo {
     pub size: u64,
     /// 服务器返回的原始文件名，必须清洗掉不合法字符才能安全使用
