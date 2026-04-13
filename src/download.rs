@@ -1,5 +1,5 @@
 use crate::{
-    CPusher, CallbackContext, EventCallback, FlushCallback, PushCallback, RUNTIME, UrlInfo,
+    CPusher, CallbackContext, Config, EventCallback, FlushCallback, PushCallback, RUNTIME, UrlInfo,
 };
 use arc_swap::ArcSwap;
 use fast_down_ffi::{BoxPusher, Error, Rx};
@@ -125,6 +125,21 @@ pub unsafe extern "C" fn download_task_get_error(handle: *const DownloadTask) ->
             .as_ref()
             .and_then(|h| h.error.as_ref().map(|s| s.as_ptr()))
             .unwrap_or(std::ptr::null())
+    }
+}
+
+/// 设置/覆盖下载任务的配置（必须在 start_* 之前调用）
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn download_task_set_config(
+    handle: *mut DownloadTask,
+    config: *const Config,
+) {
+    if handle.is_null() || config.is_null() {
+        return;
+    }
+    let (h, cfg) = unsafe { (&mut *handle, &*config) };
+    if let Some(task) = &mut h.task {
+        task.config = cfg.config.clone();
     }
 }
 

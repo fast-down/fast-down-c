@@ -15,11 +15,12 @@ int main() {
 
   // 创建下载任务
   DownloadTask *task = prefetch(url, config, NULL);
+  config_free(&config);
+
   const char *error = download_task_get_error(task);
   if (error != NULL) {
     printf("Error: %s\n", error);
     download_task_free(&task);
-    config_free(&config);
     return 1;
   }
 
@@ -37,6 +38,5 @@ int main() {
 
   // 释放资源
   download_task_free(&task);
-  config_free(&config);
   return 0;
 }

@@ -191,6 +191,11 @@ struct UrlInfo *download_task_get_info(struct DownloadTask *handle);
 const char *download_task_get_error(const struct DownloadTask *handle);
 
 /**
+ * 设置/覆盖下载任务的配置（必须在 start_* 之前调用）
+ */
+void download_task_set_config(struct DownloadTask *handle, const struct Config *config);
+
+/**
  * 开始下载任务写入到指定路径
  *
  * # 返回值
