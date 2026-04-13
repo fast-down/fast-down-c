@@ -1,7 +1,5 @@
-#include <stdarg.h>
-#include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
+#include <stdbool.h>
 
 typedef enum EventType {
   PrefetchError = 0,

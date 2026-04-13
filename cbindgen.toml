@@ -1,2 +1,4 @@
 language = "C"
 cpp_compat = true
+no_includes = true
+sys_includes = ["stdint.h", "stdbool.h"]

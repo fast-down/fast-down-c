@@ -1,0 +1,3 @@
+-I.
+-Iinclude
+-std=c99
