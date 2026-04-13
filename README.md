@@ -1,7 +1,7 @@
 # fast-down-c
 
 [![GitHub last commit](https://img.shields.io/github/last-commit/fast-down/fast-down-c/main)](https://github.com/fast-down/fast-down-c/commits/main)
-[![CI](https://github.com/fast-down/fast-down-c/workflows/CI/badge.svg)](https://github.com/fast-down/fast-down-c/actions)
+[![Build](https://github.com/fast-down/fast-down-c/workflows/Build/badge.svg)](https://github.com/fast-down/fast-down-c/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fast-down/fast-down-c/blob/main/LICENSE)
 
 fast-down C 语言绑定，封装自 [fast-down-ffi](https://github.com/fast-down/ffi)，由 Rust 驱动，简洁易用。

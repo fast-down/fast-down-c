@@ -1,0 +1,150 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-unknown-linux-musl
+          - x86_64-unknown-linux-musl
+          - i686-unknown-linux-musl
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+          - x86_64-pc-windows-msvc
+          - i686-pc-windows-msvc
+          - aarch64-pc-windows-msvc
+        include:
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            use-cross: true
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            use-cross: true
+          - target: i686-unknown-linux-musl
+            os: ubuntu-latest
+            use-cross: true
+          - target: aarch64-apple-darwin
+            os: macos-14
+            use-cross: false
+          - target: x86_64-apple-darwin
+            os: macos-14
+            use-cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+            use-cross: false
+          - target: i686-pc-windows-msvc
+            os: windows-2022
+            use-cross: false
+          - target: aarch64-pc-windows-msvc
+            os: windows-2022
+            use-cross: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install NASM
+        if: startsWith(matrix.target, 'windows-')
+        uses: ilammy/setup-nasm@v1
+
+      - name: Install Cross
+        if: matrix.use-cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build library
+        shell: bash
+        run: |
+          if [ "${{ matrix.use-cross }}" == "true" ]; then
+            cross build --verbose --release --target ${{ matrix.target }}
+          else
+            cargo build --verbose --release --target ${{ matrix.target }}
+          fi
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          mkdir -p "./artifacts/fast-down-${{ matrix.target }}/"
+
+          TARGET_DIR="target/${{ matrix.target }}/release"
+
+          # 复制静态库和动态库
+          case "${{ matrix.target }}" in
+            *windows*)
+              cp "${TARGET_DIR}/libfast_down.lib" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.lib" 2>/dev/null || true
+              cp "${TARGET_DIR}/fast_down.dll" "./artifacts/fast-down-${{ matrix.target }}/fast_down.dll" 2>/dev/null || true
+              ;;
+            *apple*)
+              cp "${TARGET_DIR}/libfast_down.a" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.a"
+              cp "${TARGET_DIR}/libfast_down.dylib" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.dylib" 2>/dev/null || true
+              ;;
+            *)
+              cp "${TARGET_DIR}/libfast_down.a" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.a"
+              cp "${TARGET_DIR}/libfast_down.so" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.so" 2>/dev/null || true
+              ;;
+          esac
+
+          # 复制头文件
+          mkdir -p "./artifacts/fast-down-${{ matrix.target }}/include/"
+          cp include/*.h "./artifacts/fast-down-${{ matrix.target }}/include/" 2>/dev/null || true
+
+          echo "ARTIFACT_PATH=./artifacts/fast-down-${{ matrix.target }}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.ARTIFACT_PATH }}
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: ./all-artifacts
+          merge-multiple: true
+
+      - name: Create tarballs
+        shell: bash
+        run: |
+          cd all-artifacts
+          for dir in */; do
+            platform="${dir%/}"
+            tar czvf "../${platform}.tar.gz" "$platform"
+          done
+
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ../*.tar.gz
+          generate_release_notes: true
