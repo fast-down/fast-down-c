@@ -66,7 +66,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Install NASM
-        if: startsWith(matrix.target, 'windows-')
+        if: contains(matrix.target, 'windows')
         uses: ilammy/setup-nasm@v1
 
       - name: Install Cross
