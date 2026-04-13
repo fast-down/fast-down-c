@@ -28,3 +28,10 @@ nursery = { level = "deny", priority = -1 }
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 missing-safety-doc = "allow"
+
+[profile.release]
+opt-level = 3
+strip = true
+lto = true
+panic = "abort"
+codegen-units = 1
