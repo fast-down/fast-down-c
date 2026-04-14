@@ -17,6 +17,12 @@ cargo build --release
 - Linux/macOS: `libfast_down.so` 或 `libfast_down.a`
 - Windows: `fast_down.dll` 或 `fast_down.lib`
 
+```bash
+cd example
+gcc -O3 -o basic_download basic_download.c -I../include ../target/release/libfast_down.a
+./basic_download
+```
+
 ## 示例
 
 ```c
