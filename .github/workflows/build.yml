@@ -16,17 +16,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - aarch64-unknown-linux-musl
-          - x86_64-unknown-linux-musl
-          - i686-unknown-linux-musl
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
-          - x86_64-pc-windows-msvc
-          - i686-pc-windows-msvc
-          - aarch64-pc-windows-msvc
-          - x86_64-pc-windows-gnu
-          - i686-pc-windows-gnu
         include:
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
@@ -77,6 +66,12 @@ jobs:
       - name: Install NASM
         if: contains(matrix.target, 'windows')
         uses: ilammy/setup-nasm@v1
+
+      - name: Setup MinGW
+        if: matrix.target == 'i686-pc-windows-gnu'
+        uses: egor-tensin/setup-mingw@v3
+        with:
+          platform: x86
 
       - name: Install Cross
         if: matrix.use-cross
