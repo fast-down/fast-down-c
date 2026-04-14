@@ -27,7 +27,6 @@ jobs:
           - aarch64-pc-windows-msvc
           - x86_64-pc-windows-gnu
           - i686-pc-windows-gnu
-          - aarch64-pc-windows-gnu
         include:
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
@@ -57,9 +56,6 @@ jobs:
             os: windows-2022
             use-cross: false
           - target: i686-pc-windows-gnu
-            os: windows-2022
-            use-cross: false
-          - target: aarch64-pc-windows-gnu
             os: windows-2022
             use-cross: false
 
