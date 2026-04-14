@@ -25,6 +25,9 @@ jobs:
           - x86_64-pc-windows-msvc
           - i686-pc-windows-msvc
           - aarch64-pc-windows-msvc
+          - x86_64-pc-windows-gnu
+          - i686-pc-windows-gnu
+          - aarch64-pc-windows-gnu
         include:
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
@@ -50,6 +53,15 @@ jobs:
           - target: aarch64-pc-windows-msvc
             os: windows-2022
             use-cross: false
+          - target: x86_64-pc-windows-gnu
+            os: windows-2022
+            use-cross: false
+          - target: i686-pc-windows-gnu
+            os: windows-2022
+            use-cross: false
+          - target: aarch64-pc-windows-gnu
+            os: windows-2022
+            use-cross: false
 
     steps:
       - name: Checkout repository
@@ -64,6 +76,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+          cache-on-failure: "true"
 
       - name: Install NASM
         if: contains(matrix.target, 'windows')
@@ -94,20 +107,11 @@ jobs:
           TARGET_DIR="target/${{ matrix.target }}/release"
 
           # 复制静态库和动态库
-          case "${{ matrix.target }}" in
-            *windows*)
-              cp "${TARGET_DIR}/fast_down.lib" "./artifacts/fast-down-${{ matrix.target }}/fast_down.lib" 2>/dev/null || true
-              cp "${TARGET_DIR}/fast_down.dll" "./artifacts/fast-down-${{ matrix.target }}/fast_down.dll" 2>/dev/null || true
-              ;;
-            *apple*)
-              cp "${TARGET_DIR}/libfast_down.a" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.a" 2>/dev/null || true
-              cp "${TARGET_DIR}/libfast_down.dylib" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.dylib" 2>/dev/null || true
-              ;;
-            *)
-              cp "${TARGET_DIR}/libfast_down.a" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.a" 2>/dev/null || true
-              cp "${TARGET_DIR}/libfast_down.so" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.so" 2>/dev/null || true
-              ;;
-          esac
+          cp "${TARGET_DIR}/fast_down.lib" "./artifacts/fast-down-${{ matrix.target }}/fast_down.lib" 2>/dev/null || true
+          cp "${TARGET_DIR}/fast_down.dll" "./artifacts/fast-down-${{ matrix.target }}/fast_down.dll" 2>/dev/null || true
+          cp "${TARGET_DIR}/libfast_down.a" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.a" 2>/dev/null || true
+          cp "${TARGET_DIR}/libfast_down.dylib" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.dylib" 2>/dev/null || true
+          cp "${TARGET_DIR}/libfast_down.so" "./artifacts/fast-down-${{ matrix.target }}/libfast_down.so" 2>/dev/null || true
 
           # 复制头文件
           mkdir -p "./artifacts/fast-down-${{ matrix.target }}/include/"
@@ -120,7 +124,8 @@ jobs:
         with:
           name: ${{ matrix.target }}
           path: ${{ env.ARTIFACT_PATH }}
-          retention-days: 1
+          retention-days: 7
+          compression-level: 9
 
   release:
     name: Create Release
