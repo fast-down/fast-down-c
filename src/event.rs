@@ -15,6 +15,8 @@ pub enum EventType {
     Flushing,
     FlushError,
     Finished,
+    TaskCompleted,
+    TaskFailed,
 }
 
 /// 当下载过程中发生事件时，此回调会被调用。
@@ -45,6 +47,8 @@ pub struct CallbackContext {
     pub callback: EventCallback,
     pub context: *mut c_void,
 }
+unsafe impl Send for CallbackContext {}
+unsafe impl Sync for CallbackContext {}
 
 impl CallbackContext {
     pub fn emit_c_event(&self, event: fast_down_ffi::Event) {
@@ -81,7 +85,7 @@ impl CallbackContext {
         };
         let msg_ptr = message.as_ref().map_or(std::ptr::null(), |m| m.as_ptr());
         if let Some(cb) = self.callback {
-            (cb)(
+            cb(
                 self.context,
                 event_type,
                 id,
@@ -89,6 +93,25 @@ impl CallbackContext {
                 range_start,
                 range_end,
             );
+        }
+    }
+
+    pub fn emit_completed(&self) {
+        if let Some(cb) = self.callback {
+            cb(
+                self.context,
+                EventType::TaskCompleted,
+                0,
+                std::ptr::null(),
+                0,
+                0,
+            );
+        }
+    }
+
+    pub fn emit_failed(&self, msg: *const c_char) {
+        if let Some(cb) = self.callback {
+            cb(self.context, EventType::TaskFailed, 0, msg, 0, 0);
         }
     }
 }

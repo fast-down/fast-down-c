@@ -1,6 +1,6 @@
 [package]
 name = "fast_down"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [lib]
@@ -9,7 +9,8 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 arc-swap = "1.9.1"
 bytes = "1.11.1"
-fast-down-ffi = { version = "0.2.6", features = ["file", "mem", "reqwest-tls"] }
+# fast-down-ffi = { version = "0.2.6", features = ["file", "mem", "reqwest-tls"] }
+fast-down-ffi = { version = "0.2.6", path = "../ffi", features = ["file", "mem", "reqwest-tls"] }
 parking_lot = "0.12.5"
 path_helper = { version = "0.1.2", features = ["sanitize"] }
 tokio = { version = "1.51.1", features = ["full"] }

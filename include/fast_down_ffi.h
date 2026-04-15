@@ -13,6 +13,8 @@ typedef enum EventType {
   Flushing,
   FlushError,
   Finished,
+  TaskCompleted,
+  TaskFailed,
 } EventType;
 
 typedef struct CancellationToken CancellationToken;
@@ -201,9 +203,8 @@ void download_task_set_config(struct DownloadTask *handle, const struct Config *
  * # 返回值
  * - `0` 成功
  * - `-1` 参数错误 (传入了空指针)
- * - `-2` 任务不存在 (可能是因为 prefetch 失败了)
- * - `-3` 任务已经运行
- * - `-4` 下载失败
+ * - `-2` 任务无效(可能是因为 prefetch 失败了)/任务已经运行
+ * - `-3` 下载失败
  */
 int32_t download_task_start_to_file(struct DownloadTask *handle,
                                     const char *save_path,
@@ -216,9 +217,8 @@ int32_t download_task_start_to_file(struct DownloadTask *handle,
  * # 返回值
  * - `0` 成功
  * - `-1` 参数错误 (传入了空指针)
- * - `-2` 任务不存在 (可能是因为 prefetch 失败了)
- * - `-3` 任务已经运行
- * - `-4` 下载失败
+ * - `-2` 任务无效(可能是因为 prefetch 失败了)/任务已经运行
+ * - `-3` 下载失败
  */
 int32_t download_task_start_to_memory(struct DownloadTask *handle,
                                       uint8_t **out_data,
@@ -237,9 +237,8 @@ void free_downloaded_data(uint8_t **ptr, uintptr_t len);
  * # 返回值
  * - `0` 成功
  * - `-1` 参数错误 (传入了空指针)
- * - `-2` 任务不存在 (可能是因为 prefetch 失败了)
- * - `-3` 任务已经运行
- * - `-4` 下载失败
+ * - `-2` 任务无效(可能是因为 prefetch 失败了)/任务已经运行
+ * - `-3` 下载失败
  */
 int32_t download_task_start_with_pusher(struct DownloadTask *handle,
                                         PushCallback push_cb,
@@ -247,6 +246,24 @@ int32_t download_task_start_with_pusher(struct DownloadTask *handle,
                                         void *pusher_ctx,
                                         EventCallback event_cb,
                                         void *event_ctx);
+
+int32_t download_task_start_to_file_async(struct DownloadTask *handle,
+                                          const char *save_path,
+                                          EventCallback callback,
+                                          void *context);
+
+int32_t download_task_start_to_memory_async(struct DownloadTask *handle,
+                                            uint8_t **out_data,
+                                            uintptr_t *out_len,
+                                            EventCallback callback,
+                                            void *context);
+
+int32_t download_task_start_with_pusher_async(struct DownloadTask *handle,
+                                              PushCallback push_cb,
+                                              FlushCallback flush_cb,
+                                              void *pusher_ctx,
+                                              EventCallback event_cb,
+                                              void *event_ctx);
 
 /**
  * 创建下载任务
