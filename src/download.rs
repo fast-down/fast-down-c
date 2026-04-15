@@ -56,6 +56,12 @@ impl DownloadTask {
     }
 }
 
+impl Drop for DownloadTask {
+    fn drop(&mut self) {
+        self.token.cancel();
+    }
+}
+
 /// 释放任务句柄
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn download_task_free(ptr: *mut *mut DownloadTask) {

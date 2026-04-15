@@ -410,7 +410,9 @@ dependencies = [
 
 [[package]]
 name = "fast-down-ffi"
-version = "0.2.7"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7372a90e06c3937ea1b8292dbbd52a2194abb7b9a73d13bb4160eb4ecde8f823"
 dependencies = [
  "crossfire",
  "fast-down",

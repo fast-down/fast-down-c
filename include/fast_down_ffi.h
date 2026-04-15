@@ -67,6 +67,8 @@ typedef int (*PushCallback)(void *context, uint64_t offset, const uint8_t *data,
  */
 typedef int (*FlushCallback)(void *context);
 
+typedef void (*PrefetchCallback)(void *context, struct DownloadTask *task);
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -274,11 +276,28 @@ int32_t download_task_start_with_pusher_async(struct DownloadTask *handle,
  * - `token`: 取消令牌句柄（可为 NULL，内部自动创建）
  *
  * # 返回值
- * 成功返回 `DownloadTask*`，失败返回 NULL。
+ * - URL 解析失败返回 NULL
+ * - 其他情况返回 `DownloadTask*`
  */
 struct DownloadTask *prefetch(const char *url,
                               struct Config *config,
                               struct CancellationToken *token);
+
+/**
+ * 创建下载任务
+ *
+ * # 参数
+ * - `url`: 下载链接（UTF-8 字符串）
+ * - `config`: 配置句柄（可为 NULL，使用默认配置）
+ * - `token`: 取消令牌句柄（可为 NULL，内部自动创建）
+ * - `callback`: 回调函数
+ * - `context`: 回调上下文（可为 NULL）
+ */
+void prefetch_async(const char *url,
+                    struct Config *config,
+                    struct CancellationToken *token,
+                    PrefetchCallback callback,
+                    void *context);
 
 /**
  * 释放 `UrlInfo` 句柄

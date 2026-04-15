@@ -34,6 +34,10 @@ int main() {
 
   // 创建下载任务
   DownloadTask *task = prefetch(url, NULL, NULL);
+  if (task == NULL) {
+    printf("Url parse failed\n");
+    return 1;
+  }
   const char *error = download_task_get_error(task);
   if (error != NULL) {
     printf("Error: %s\n", error);
