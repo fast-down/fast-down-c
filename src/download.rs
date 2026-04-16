@@ -177,18 +177,10 @@ async fn download_inner<R>(
         }
     }
     match res {
-        Ok(data) => {
-            if let Some(ctx) = &ctx {
-                ctx.emit_completed();
-            }
-            Ok(data)
-        }
+        Ok(data) => Ok(data),
         Err(e) => {
             let e = CString::new(format!("Download task failed: {e:?}"))
                 .unwrap_or_else(|_| CString::from(c"Download task failed: Unkown Error"));
-            if let Some(ctx) = &ctx {
-                ctx.emit_failed(e.as_ptr());
-            }
             Err(e)
         }
     }
@@ -228,10 +220,17 @@ pub unsafe extern "C" fn download_task_start_to_file(
     match res {
         Ok(()) => {
             h.error.store(None);
+            if let Some(ctx) = &ctx {
+                ctx.emit_completed();
+            }
             0
         }
         Err(e) => {
+            let err_ptr = e.as_ptr();
             h.error.store(Some(Arc::new(e)));
+            if let Some(ctx) = &ctx {
+                ctx.emit_failed(err_ptr);
+            }
             -3
         }
     }
@@ -274,10 +273,17 @@ pub unsafe extern "C" fn download_task_start_to_memory(
             }
             std::mem::forget(boxed);
             h.error.store(None);
+            if let Some(ctx) = &ctx {
+                ctx.emit_completed();
+            }
             0
         }
         Err(e) => {
+            let err_ptr = e.as_ptr();
             h.error.store(Some(Arc::new(e)));
+            if let Some(ctx) = &ctx {
+                ctx.emit_failed(err_ptr);
+            }
             -3
         }
     }
@@ -338,10 +344,17 @@ pub unsafe extern "C" fn download_task_start_with_pusher(
     match res {
         Ok(()) => {
             h.error.store(None);
+            if let Some(ctx) = &event_ctx {
+                ctx.emit_completed();
+            }
             0
         }
         Err(e) => {
+            let err_ptr = e.as_ptr();
             h.error.store(Some(Arc::new(e)));
+            if let Some(ctx) = &event_ctx {
+                ctx.emit_failed(err_ptr);
+            }
             -3
         }
     }
@@ -373,12 +386,23 @@ pub unsafe extern "C" fn download_task_start_to_file_async(
     RUNTIME.spawn(async move {
         let fut = task.start(save_path, child_token.clone()).force_send();
         let res = download_inner(fut, rx, ctx.as_ref()).await;
-        match res {
-            Ok(()) => err_arc.store(None),
-            Err(e) => err_arc.store(Some(Arc::new(e))),
-        }
         task_mutex.lock().replace(task);
         child_token.cancel();
+        match res {
+            Ok(()) => {
+                err_arc.store(None);
+                if let Some(ctx) = &ctx {
+                    ctx.emit_completed();
+                }
+            }
+            Err(e) => {
+                let err_ptr = e.as_ptr();
+                err_arc.store(Some(Arc::new(e)));
+                if let Some(ctx) = &ctx {
+                    ctx.emit_failed(err_ptr);
+                }
+            }
+        }
     });
     0
 }
@@ -408,6 +432,8 @@ pub unsafe extern "C" fn download_task_start_to_memory_async(
     RUNTIME.spawn(async move {
         let fut = task.start_in_memory(child_token.clone()).force_send();
         let res = download_inner(fut, rx, ctx.as_ref()).await;
+        task_mutex.lock().replace(task);
+        child_token.cancel();
         match res {
             Ok(bytes) => {
                 let mut boxed = bytes.into_boxed_slice();
@@ -417,11 +443,18 @@ pub unsafe extern "C" fn download_task_start_to_memory_async(
                 }
                 std::mem::forget(boxed);
                 error_arc.store(None);
+                if let Some(ctx) = &ctx {
+                    ctx.emit_completed();
+                }
             }
-            Err(e) => error_arc.store(Some(Arc::new(e))),
+            Err(e) => {
+                let err_ptr = e.as_ptr();
+                error_arc.store(Some(Arc::new(e)));
+                if let Some(ctx) = &ctx {
+                    ctx.emit_failed(err_ptr);
+                }
+            }
         }
-        task_mutex.lock().replace(task);
-        child_token.cancel();
     });
     0
 }
@@ -457,12 +490,23 @@ pub unsafe extern "C" fn download_task_start_with_pusher_async(
             .start_with_pusher(BoxPusher::new(pusher), child_token.clone())
             .force_send();
         let res = download_inner(fut, rx, event_ctx.as_ref()).await;
-        match res {
-            Ok(()) => error_arc.store(None),
-            Err(e) => error_arc.store(Some(Arc::new(e))),
-        }
         task_mutex.lock().replace(task);
         child_token.cancel();
+        match res {
+            Ok(()) => {
+                error_arc.store(None);
+                if let Some(ctx) = &event_ctx {
+                    ctx.emit_completed();
+                }
+            }
+            Err(e) => {
+                let err_ptr = e.as_ptr();
+                error_arc.store(Some(Arc::new(e)));
+                if let Some(ctx) = &event_ctx {
+                    ctx.emit_failed(err_ptr);
+                }
+            }
+        }
     });
     0
 }
