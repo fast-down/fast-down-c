@@ -80,6 +80,6 @@ int main() {
   config_free(&config);
 
   while (true) {
-    printf("等待 1s\n");
+    SLEEP(1000);
   }
 }
