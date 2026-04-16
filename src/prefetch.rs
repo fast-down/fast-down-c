@@ -1,4 +1,4 @@
-use crate::{CancellationToken, Config, DownloadTask, ForceSendExt, RUNTIME};
+use crate::{CancellationToken, Config, DownloadTask, RUNTIME, SafePtr};
 use fast_down_ffi::create_channel;
 use std::ffi::{CStr, CString, c_void};
 use std::os::raw::c_char;
@@ -87,30 +87,30 @@ pub unsafe extern "C" fn prefetch_async(
             t.token.clone()
         });
     let (tx, rx) = create_channel();
-    RUNTIME.spawn(
-        async move {
-            let task_result = cancel_token
-                .run_until_cancelled(fast_down_ffi::prefetch(url, config, tx))
-                .await;
-            let res = match task_result {
-                Some(Ok(task)) => DownloadTask::new(task, rx, cancel_token),
-                Some(Err(e)) => DownloadTask::new_failed(
-                    CString::new(format!("{e}"))
-                        .unwrap_or_else(|_| CString::new("Prefetch error").unwrap()),
-                    rx,
-                    cancel_token,
-                ),
-                None => DownloadTask::new_failed(
-                    CString::new("Prefetch error").unwrap(),
-                    rx,
-                    cancel_token,
-                ),
-            };
-            let task_ptr = Box::into_raw(Box::new(res));
-            if let Some(cb) = callback {
-                cb(context, task_ptr);
+    let callback = SafePtr(callback);
+    let context = SafePtr(context);
+    RUNTIME.spawn(async move {
+        let task_result = cancel_token
+            .run_until_cancelled(fast_down_ffi::prefetch(url, config, tx))
+            .await;
+        let res = match task_result {
+            Some(Ok(task)) => DownloadTask::new(task, rx, cancel_token),
+            Some(Err(e)) => DownloadTask::new_failed(
+                CString::new(format!("{e}"))
+                    .unwrap_or_else(|_| CString::new("Prefetch error").unwrap()),
+                rx,
+                cancel_token,
+            ),
+            None => {
+                DownloadTask::new_failed(CString::new("Prefetch error").unwrap(), rx, cancel_token)
             }
+        };
+        if callback.is_some() {
+            tokio::task::spawn_blocking(move || {
+                let cb = callback.0.unwrap();
+                let task_ptr = Box::into_raw(Box::new(res));
+                cb(context.into_inner(), task_ptr);
+            });
         }
-        .force_send(),
-    );
+    });
 }

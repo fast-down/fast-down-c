@@ -1,6 +1,6 @@
 use crate::{
     CPusher, CallbackContext, Config, EventCallback, FlushCallback, ForceSendExt, PushCallback,
-    RUNTIME, UrlInfo,
+    RUNTIME, SafePtr, UrlInfo,
 };
 use arc_swap::{ArcSwap, ArcSwapOption};
 use fast_down_ffi::{BoxPusher, Error, Rx};
@@ -403,27 +403,26 @@ pub unsafe extern "C" fn download_task_start_to_memory_async(
     let ctx = callback.map(|_| CallbackContext { callback, context });
     let rx = h.rx.clone();
     let error_arc = h.error.clone();
-    RUNTIME.spawn(
-        async move {
-            let fut = task.start_in_memory(child_token.clone());
-            let res = download_inner(fut, rx, ctx.as_ref()).await;
-            match res {
-                Ok(bytes) => {
-                    let mut boxed = bytes.into_boxed_slice();
-                    unsafe {
-                        *out_data = boxed.as_mut_ptr();
-                        *out_len = boxed.len();
-                    }
-                    std::mem::forget(boxed);
-                    error_arc.store(None);
+    let out_data = SafePtr(out_data);
+    let out_len = SafePtr(out_len);
+    RUNTIME.spawn(async move {
+        let fut = task.start_in_memory(child_token.clone()).force_send();
+        let res = download_inner(fut, rx, ctx.as_ref()).await;
+        match res {
+            Ok(bytes) => {
+                let mut boxed = bytes.into_boxed_slice();
+                unsafe {
+                    *out_data.into_inner() = boxed.as_mut_ptr();
+                    *out_len.into_inner() = boxed.len();
                 }
-                Err(e) => error_arc.store(Some(Arc::new(e))),
+                std::mem::forget(boxed);
+                error_arc.store(None);
             }
-            task_mutex.lock().replace(task);
-            child_token.cancel();
+            Err(e) => error_arc.store(Some(Arc::new(e))),
         }
-        .force_send(),
-    );
+        task_mutex.lock().replace(task);
+        child_token.cancel();
+    });
     0
 }
 
