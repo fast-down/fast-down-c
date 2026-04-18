@@ -330,8 +330,7 @@ pub unsafe extern "C" fn download_task_start_with_pusher(
     let Some(task) = h.task.lock().take() else {
         return -2;
     };
-    let buffer_size = task.config.write_buffer_size;
-    let pusher = CPusher::new(push_cb, flush_cb, buffer_size, pusher_ctx);
+    let pusher = CPusher::new(push_cb, flush_cb, pusher_ctx);
     let child_token = h.refresh_child_token();
     let fut = task.start_with_pusher(BoxPusher::new(pusher), child_token.clone());
     let event_ctx = event_cb.map(|_| CallbackContext {
@@ -483,8 +482,7 @@ pub unsafe extern "C" fn download_task_start_with_pusher_async(
     });
     let rx = h.rx.clone();
     let error_arc = h.error.clone();
-    let buffer_size = task.config.write_buffer_size;
-    let pusher = CPusher::new(push_cb, flush_cb, buffer_size, pusher_ctx);
+    let pusher = CPusher::new(push_cb, flush_cb, pusher_ctx);
     RUNTIME.spawn(async move {
         let fut = task
             .start_with_pusher(BoxPusher::new(pusher), child_token.clone())
